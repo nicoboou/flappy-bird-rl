@@ -4,6 +4,7 @@
 # Directories
 archive/
 .vscode/
+wandb/
 
 #Specific extensions
 
