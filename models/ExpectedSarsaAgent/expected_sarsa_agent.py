@@ -1,4 +1,8 @@
+import os
+import pickle
 import numpy as np
+from tqdm import tqdm 
+import wandb
 
 from models.base_agent import BaseAgent
 
@@ -20,7 +24,7 @@ class ExpectedSarsaAgent(BaseAgent):
         prev_action (int): The previous action.
     """
 
-    def __init__(self, agent_init_info):
+    def __init__(self, env, config):
         """Setup for the agent called when the experiment first starts.
 
         Args:
@@ -34,16 +38,20 @@ class ExpectedSarsaAgent(BaseAgent):
         }
 
         """
-        # Store the parameters provided in agent_init_info.
-        self.num_actions = agent_init_info["num_actions"]
-        self.epsilon = agent_init_info["epsilon"]
-        self.step_size = agent_init_info["step_size"]
-        self.discount = agent_init_info["discount"]
-        self.rand_generator = np.random.RandomState(agent_init_info["seed"])
+        # Store the parameters provided in config.
+        self.env = env
+        self.num_actions = config["NUM_ACTIONS"]
+        self.num_steps = config["NUM_STEPS"]
+        self.num_episodes = config["NUM_EPISODES"]
+        self.discount = config["DISCOUNT"]
+        self.epsilon = config["EPSILON"]
+        self.step_size = config["STEP_SIZE"]
+        self.seed = config["SEED"]
+        self.rand_generator = np.random.RandomState(config["SEED"])
 
         # Create an array for action-value estimates and initialize it to zero.
-        if agent_init_info["policy"]:
-            self.q = agent_init_info["policy"]
+        if config["POLICY"]:
+            self.q = config["POLICY"]
         else:
             self.q = {}
 
@@ -59,11 +67,11 @@ class ExpectedSarsaAgent(BaseAgent):
         """
         Determine the policy corresponding to the final action-value function estimate.
         """
-
         if self.q[observation]:
             # Find key_value pair with highest Q value in the dictionary
             pi = max(self.q[observation], key=self.q[observation].get)
             print("Policy: ", pi)
+
         else:
             raise ValueError(
                 "Policy empty for this state, state was probably not explored. \n Train your agent first"
@@ -146,7 +154,8 @@ class ExpectedSarsaAgent(BaseAgent):
         return action
 
     def agent_end(self, reward):
-        """Run when the agent terminates.
+        """
+        Run when the agent terminates.
         Args:
             reward (float): the reward the agent received for entering the
                 terminal state.
@@ -176,3 +185,97 @@ class ExpectedSarsaAgent(BaseAgent):
                 ties.append(index)
 
         return self.rand_generator.choice(ties)
+
+    def train(self, all_reward_sums, all_state_visits, all_scores):
+        """
+        Train the agent using a given environment.
+
+        Args:
+            all_reward_sums (dict): Dictionary containing the reward sums for each agent.
+            all_state_visits (dict): Dictionary containing the state visits for each agent.
+            all_scores (dict): Dictionary containing the scores for each agent.
+
+        Returns:
+            None
+        """
+        # Init wandb
+        wandb.init(project="Flappy-RL")
+        
+        # Agent name
+        agent_name = self.__class__.__name__
+
+        # Iteration over the number of runs
+        for run in tqdm(range(self.num_episodes)):
+
+            # Set the seed value to the current run index
+            self.seed = run
+
+            # Initialize the environment
+            # Returns (obs: (x_dist,y_dist), info: {"score", "player", "distance"})
+            state, info = self.env.reset()
+
+            # Set done to False
+            done = False
+
+            reward_sums = []
+            state_visits = {}
+
+            # Iterate over the number of episodes
+            for step in range(self.num_steps):
+                if step == 0:
+            
+                    # Keep track of the visited states
+                    state, info = self.env.reset()
+                    action = self.agent_start(state)
+
+                    state_visits[state] = 1
+                    state, reward, done, _, info = self.env.step(action)
+                    reward_sums.append(reward)
+
+                else:
+                    while not done:
+                        action = self.agent_step(reward, state)
+
+                        if state not in state_visits: 
+                            state_visits[state] = 1
+                        else:
+                            state_visits[state] += 1
+
+                        state, reward, done, _, info = self.env.step(action)
+                        reward_sums.append(reward)
+
+                        # If terminal state
+                        if done:
+                            self.agent_end(reward)
+                            break
+
+            all_reward_sums[agent_name].append(np.sum(reward_sums))
+            all_state_visits[agent_name].append(np.sum(state_visits))
+            all_scores[agent_name].append(np.sum(info["score"]))
+
+            wandb.log({"episode_reward": np.sum(reward_sums), "episode_score":np.sum(info["score"]), "episode_duration": step+1})
+
+        # Print the average reward sum & average score after training
+        print("Average Reward Sum: ", np.mean(all_reward_sums[agent_name]))
+        print("Average Score: ", np.mean(all_scores[agent_name]))
+
+        wandb.log({"average_reward_sum": np.mean(all_reward_sums[agent_name]), "average_score": np.mean(all_scores[agent_name])})
+        
+        wandb.finish()
+
+        # Create dir if not exists
+        AGENT_DIR = 'models/' + agent_name + '/'
+        if not os.path.exists(AGENT_DIR):
+            os.makedirs(AGENT_DIR)
+
+        # Save policy for simulation
+        with open(AGENT_DIR + agent_name + '_q_values.pickle', 'wb') as handle:
+            pickle.dump(self.q, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # Save results for vizualization
+        with open(AGENT_DIR + agent_name + '_results.pickle', 'wb') as handle:
+            pickle.dump(all_reward_sums[agent_name], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(all_state_visits[agent_name], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(all_scores[agent_name], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            
+
