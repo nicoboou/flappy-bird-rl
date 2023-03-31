@@ -8,10 +8,10 @@ from abc import ABCMeta, abstractmethod
 
 
 class BaseAgent:
-    """Implements the agent for an RL-Glue environment.
+    """
+    Abstract class for Flappy Agent.
     Note:
-        agent_init, agent_start, agent_step, agent_end, agent_cleanup, and
-        agent_message are required methods.
+        agent_init, agent_start, agent_step, agent_end are required methods.
     """
 
     __metaclass__ = ABCMeta
