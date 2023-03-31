@@ -1,0 +1,27 @@
+{
+  "DeepQLearningAgent": {
+    "NUM_ACTIONS": 2,
+    "STATE_SIZE": 2,
+    "NUM_EPISODES": 1000,
+    "EPSILON_START": 0.9,
+    "EPSILON_END": 0.05,
+    "EPSILON_DECAY": 1000,
+    "DISCOUNT": 0.99,
+    "BATCH_SIZE": 128,
+    "REPLAY_BUFFER_SIZE": 10000,
+    "POLICY": null,
+    "SEED": 42,
+    "TAU": 0.08,
+    "LR": 1e-4
+  },
+  "ExpectedSarsaAgent": {
+    "NUM_ACTIONS": 2,
+    "NUM_STEPS": 500,
+    "NUM_EPISODES": 50000,
+    "STEP_SIZE": 0.1,
+    "EPSILON": 0.1,
+    "DISCOUNT": 0.9,
+    "POLICY": null,
+    "SEED": 42
+  }
+}
