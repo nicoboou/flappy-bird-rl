@@ -4,12 +4,20 @@ import numpy as np
 import gymnasium as gym
 import time
 import pickle
+import json
+import torch
 
 import text_flappy_bird_gym
-from models.expected_sarsa.expected_sarsa import ExpectedSarsaAgent
+from models.ExpectedSarsaAgent.expected_sarsa_agent import ExpectedSarsaAgent
+from models.DeepQLearningAgent.dqn_agent import DeepQLearningAgent
 
 
 def main(args):
+
+    # Initialize dictionaries for training results
+    all_reward_sums = {} # Contains sum of rewards during episode
+    all_state_visits = {} # Contains state visit counts during the last 10 episodes
+    all_scores = {} # Contains the scores obtained for each run
 
     parser = argparse.ArgumentParser()
 
@@ -22,31 +30,64 @@ def main(args):
         required=False,
     )
 
+    parser.add_argument(
+        "-train",
+        dest="train",
+        type=bool,
+        default=False,
+        required=False,
+    )
+
     args = parser.parse_args()
 
     # Instanciate environment
     env = gym.make("TextFlappyBird-v0", height=15, width=20, pipe_gap=4)
     obs, info = env.reset()
-
-    agent_info = {
-        "num_actions": 2,
-        "epsilon": 0.1,
-        "epsilon_decay": 0.999,
-        "step_size": 0.7,
-        "step_size_decay": 0.9999,
-        "discount": 1.0,
-    }
-    agent_info["seed"] = 0
     env_info = {}
+
+    # Import config file
+    with open("./config/one_run_config.json", "r") as f:
+        config = json.load(f)
+
 
     # Instanciate agent
     if args.agent_type == "expected_sarsa":
-        with open(
-            "./models/expected_sarsa/expected_sarsa_q_values.pickle", "rb"
-        ) as handle:
-            agent_info["policy"] = pickle.load(handle)
+        agent_info = config["ExpectedSarsaAgent"]
 
-        agent = ExpectedSarsaAgent(agent_info)
+        # If train mode is on, train the agent
+        if args.train:
+            agent = ExpectedSarsaAgent(config=agent_info, env=env)
+            all_reward_sums[agent.__class__.__name__] = []
+            all_state_visits[agent.__class__.__name__] = []
+            all_scores[agent.__class__.__name__] = []
+            print("Training started...")
+            agent.train(all_reward_sums, all_state_visits, all_scores)
+            print("Training finished. Saving model...")
+
+        # Load the trained agent
+        with open(
+            "./models/ExpectedSarsaAgent/ExpectedSarsaAgent_q_values.pickle", "rb"
+        ) as handle:
+            agent_info["POLICY"] = pickle.load(handle)
+
+        agent = ExpectedSarsaAgent(config=agent_info, env=env)
+    
+    elif args.agent_type == "dqn":
+        agent_info = config["DeepQLearningAgent"]
+
+        # If train mode is on, train the agent
+        if args.train:
+            agent = DeepQLearningAgent(config=agent_info, env=env)
+            all_reward_sums[agent.__class__.__name__] = []
+            all_state_visits[agent.__class__.__name__] = []
+            all_scores[agent.__class__.__name__] = []
+            print("Training started...")
+            agent.train(all_reward_sums, all_state_visits, all_scores)
+            print("Training finished. Saving model...")
+
+        # Load the trained agent
+        agent = DeepQLearningAgent(config=agent_info, env=env)
+        agent.load(path="./models/DeepQLearningAgent/DeepQLearningAgent_model.pt")
 
     # iterate
     while True:
@@ -54,10 +95,17 @@ def main(args):
         print(f"Observation: {obs}")
 
         # Select next action
-        action = agent.policy(obs)
+        if args.agent_type == "expected_sarsa":
+            action = agent.policy(obs)
+            # Appy action and return new observation of the environment
+            obs, reward, done, _, info = env.step(action)
 
-        # Appy action and return new observation of the environment
-        obs, reward, done, _, info = env.step(action)
+        elif args.agent_type == "dqn":
+            obs = np.array(obs)
+            obs = torch.tensor(obs, dtype=torch.float32,device=agent.device).unsqueeze(0)
+            action = agent.policy(obs)
+            # Appy action and return new observation of the environment
+            obs, reward, done, _, info = env.step(action.item())
 
         # Render the game
         os.system("clear")
